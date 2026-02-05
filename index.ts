@@ -1,4 +1,4 @@
-type ChangeHandler<T, C extends object[]> = (captures: C, next: T, current: T, context: ChangeContext) => void;
+type ChangeHandler<T, C extends object[]> = (captures: C, context: ChangeContext, next: T, current: T) => void;
 
 type Subscriber<T> = {
     handler: ChangeHandler<T, any>;
@@ -49,7 +49,7 @@ class State<T> {
 
             try {
                 State.clearChangeContext(sub.context);
-                sub.handler(captures, value, this._value, sub.context);
+                sub.handler(captures, sub.context, value, this._value);
             } catch {
                 //
             }
@@ -135,7 +135,7 @@ function Example(context: ChangeContext) {
 
     div.style.color = color.value;
 
-    color.onChangeWeak(([div], value, prev, context) => {
+    color.onChangeWeak(([div], context, value) => {
         div.style.color = value;
         Nested(context);
         AsyncNested(context);
@@ -148,7 +148,7 @@ function Example(context: ChangeContext) {
 
 function Nested(context: ChangeContext) {
     // how do we track this?
-    background.onChangeWeak(([], next, prev) => {
+    background.onChangeWeak(([], _context, next, prev) => {
         next;
         prev;
     }, [], context);
@@ -162,7 +162,7 @@ async function AsyncNested(context: ChangeContext) {
     await Promise.resolve();
 
     // how the hell do we track this?
-    background.onChangeWeak(([], next, prev) => {
+    background.onChangeWeak(([], _context, next, prev) => {
         next;
         prev;
     }, [], context);
