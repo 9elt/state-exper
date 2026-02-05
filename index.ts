@@ -7,6 +7,7 @@ type AsHandler<T, C extends object[]> = (captures: C, context: ChangeContext, va
 type ChangeHandle<T> = ((next?: T, current?: T) => void) & {
     state: State<T>;
     context: ChangeContext;
+    removed: boolean;
 };
 
 type ChangeContext = ChangeHandle<any>[];
@@ -60,6 +61,11 @@ class State<T> {
         }
 
         function handle(next: T = handle.state.value, current: T = handle.state.value): void {
+            if (handle.removed) {
+                console.error("Change handle already removed", handle);
+                return undefined;
+            }
+
             const captures = new Array<object>(refs.length);
 
             for (let i = 0; i < captures.length; i++) {
@@ -76,13 +82,14 @@ class State<T> {
             try {
                 State._clearChangeContext(handle.context);
                 handler(captures as C, handle.context, next, current);
-            } catch {
-                //
+            } catch (error) {
+                console.error("Error in change handle", handle, error);
             }
         }
 
         handle.state = this;
         handle.context = [] as ChangeContext;
+        handle.removed = false;
 
         context.push(handle);
 
@@ -105,22 +112,21 @@ class State<T> {
         return state;
     }
 
-    _removeHandle(targetHandle: ChangeHandle<T>): void {
-        let length = 0;
-        for (let i = 0; i < this._handles.length; i++) {
-            const handle = this._handles[i];
+    _removeHandle(handle: ChangeHandle<T>): void {
+        if (handle.removed) {
+            return undefined;
+        }
 
-            if (handle !== targetHandle) {
-                if (i > length) {
-                    this._handles[length] = handle;
-                }
-                length++;
+        handle.removed = true;
+
+        for (let i = 0; i < this._handles.length; i++) {
+            if (this._handles[i] === handle) {
+                this._handles.splice(i, 1);
+                break;
             }
         }
 
-        this._handles.length = length;
-
-        State._clearChangeContext(targetHandle.context);
+        State._clearChangeContext(handle.context);
     }
 
     static _clearChangeContext(context: ChangeContext): void {
