@@ -43,8 +43,7 @@ class State<T> {
             }
 
             if (dropped) {
-                State.remove(this._subs, sub);
-                State.clearChangeContext(sub.context);
+                this.unSubscribe(sub);
                 continue;
             }
 
@@ -68,7 +67,7 @@ class State<T> {
             refs[i] = new WeakRef(capture);
 
             const cleanups = State.cleanups.get(capture) ?? [];
-            cleanups.push(() => State.remove(this._subs, sub));
+            cleanups.push(() => this.unSubscribe(sub));
 
             State.cleanups.set(capture, cleanups);
             State.registry.register(capture, cleanups);
@@ -86,10 +85,14 @@ class State<T> {
         this._subs.push(sub);
     }
 
+    unSubscribe(sub: Subscriber<T>): void {
+        State.remove(this._subs, sub);
+        State.clearChangeContext(sub.context);
+    }
+
     static clearChangeContext(context: ChangeContext): void {
         for (const sub of context) {
-            State.remove(sub.state._subs, sub);
-            State.clearChangeContext(sub.context);
+            sub.state.unSubscribe(sub);
         }
     }
 
