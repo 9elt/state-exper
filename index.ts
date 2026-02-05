@@ -1,6 +1,13 @@
-type OnChangeHandler<T, C extends object[]> = (captures: C, next: T, current: T) => void;
+type ChangeHandler<T, C extends object[]> = (captures: C, next: T, current: T, context: ChangeContext) => void;
 
-type Subscriber<T> = (WeakRef<object> | OnChangeHandler<T, any>)[];
+type Subscriber<T> = {
+    handler: ChangeHandler<T, any>;
+    refs: WeakRef<object>[];
+    state: State<T>;
+    context: ChangeContext;
+};
+
+type ChangeContext = Subscriber<any>[];
 
 class State<T> {
     static cleanups: WeakMap<WeakKey, Function[]> = new WeakMap;
@@ -21,12 +28,11 @@ class State<T> {
 
     set value(value: T) {
         for (const sub of this._subs) {
-            const captures = new Array<object>(sub.length - 1);
+            const captures = new Array<object>(sub.refs.length);
 
             let dropped = false;
             for (let i = 0; i < captures.length; i++) {
-                // @ts-expect-error
-                const capture: object | undefined = sub[i].deref();
+                const capture: object | undefined = sub.refs[i].deref();
 
                 if (capture === undefined) {
                     dropped = true;
@@ -37,13 +43,14 @@ class State<T> {
             }
 
             if (dropped) {
-                remove(this._subs, sub);
+                State.remove(this._subs, sub);
+                State.clearChangeContext(sub.context);
                 continue;
             }
 
             try {
-                // @ts-expect-error
-                sub[captures.length](captures, value, this._value);
+                State.clearChangeContext(sub.context);
+                sub.handler(captures, value, this._value, sub.context);
             } catch {
                 //
             }
@@ -52,42 +59,56 @@ class State<T> {
         this._value = value;
     }
 
-    onChangeWeak<const C extends object[] | never[]>(f: OnChangeHandler<T, C>, captures: C | never[] = []): void {
-        const sub: Subscriber<T> = new Array(captures.length + 1);
+    onChangeWeak<const C extends object[]>(handler: ChangeHandler<T, C>, captures: C, context: ChangeContext): void {
+        const refs: WeakRef<object>[] = new Array(captures.length);
 
         for (let i = 0; i < captures.length; i++) {
             const capture = captures[i];
 
-            sub[i] = new WeakRef(capture);
+            refs[i] = new WeakRef(capture);
 
             const cleanups = State.cleanups.get(capture) ?? [];
-            cleanups.push(() => remove(this._subs, sub));
+            cleanups.push(() => State.remove(this._subs, sub));
 
             State.cleanups.set(capture, cleanups);
             State.registry.register(capture, cleanups);
         }
 
-        sub[captures.length] = f;
+        const sub: Subscriber<T> = {
+            refs,
+            handler,
+            state: this,
+            context: [],
+        };
+
+        context.push(sub);
 
         this._subs.push(sub);
     }
-}
 
-function remove<T>(arr: T[], exclude: T): void {
-    let length = 0;
-    for (let i = 0; i < arr.length; i++) {
-        const sub = arr[i];
-
-        if (sub !== exclude) {
-            if (i > length) {
-                arr[length] = sub;
-            }
-            length++;
+    static clearChangeContext(context: ChangeContext): void {
+        for (const sub of context) {
+            State.remove(sub.state._subs, sub);
+            State.clearChangeContext(sub.context);
         }
     }
 
-    if (arr.length !== length) {
-        arr.length = length;
+    static remove<T>(arr: T[], exclude: T): void {
+        let length = 0;
+        for (let i = 0; i < arr.length; i++) {
+            const sub = arr[i];
+
+            if (sub !== exclude) {
+                if (i > length) {
+                    arr[length] = sub;
+                }
+                length++;
+            }
+        }
+
+        if (arr.length !== length) {
+            arr.length = length;
+        }
     }
 }
 
@@ -106,38 +127,42 @@ const color = new State("red");
 
 const background = new State("blue");
 
-function example() {
+function Example(context: ChangeContext) {
     const div = document.createElement("div");
 
     div.style.color = color.value;
 
-    color.onChangeWeak(([div], value) => {
+    color.onChangeWeak(([div], value, prev, context) => {
         div.style.color = value;
-        Nested();
-        AsyncNested();
-    }, [div]);
+        Nested(context);
+        AsyncNested(context);
+    }, [div], context);
+
+    return (
+        div
+    );
 }
 
-function Nested() {
+function Nested(context: ChangeContext) {
     // how do we track this?
     background.onChangeWeak(([], next, prev) => {
         next;
         prev;
-    }, []);
+    }, [], context);
 
     return (
         0
     );
 }
 
-async function AsyncNested() {
+async function AsyncNested(context: ChangeContext) {
     await Promise.resolve();
 
     // how the hell do we track this?
     background.onChangeWeak(([], next, prev) => {
         next;
         prev;
-    }, []);
+    }, [], context);
 
     return (
         0
