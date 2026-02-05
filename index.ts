@@ -103,11 +103,13 @@ class State<T> {
     ): State<ReturnType<H>> {
         const state: State<any> = new State(undefined);
 
-        const sub = this.onChangeWeak((captures, context, value) => {
-            state.value = handler(captures, context, value);
-        }, captures, context);
+        const _captures: [State<any>, ...C] = [state, ...captures];
 
-        sub.handler(captures, sub.context, this._val, this._val);
+        const sub = this.onChangeWeak(([state, ...captures], context, value) => {
+            state.value = handler(captures, context, value);
+        }, _captures, context);
+
+        sub.handler(_captures, sub.context, this._val, this._val);
 
         return state;
     }
