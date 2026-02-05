@@ -4,12 +4,9 @@ type ChangeHandler<T, C extends object[]> = (captures: C, context: ChangeContext
 
 type AsHandler<T, C extends object[]> = (captures: C, context: ChangeContext, value: T) => unknown;
 
-type ChangeHandle<T> = {
-    handler: ChangeHandler<T, any>;
-    refs: CaptureRef[];
+type ChangeHandle<T> = ((next?: T, current?: T) => void) & {
     state: State<T>;
     context: ChangeContext;
-    exec: (next?: T, current?: T) => void;
 };
 
 type ChangeContext = ChangeHandle<any>[];
@@ -17,7 +14,11 @@ type ChangeContext = ChangeHandle<any>[];
 class State<T> {
     static cleanups: WeakMap<WeakKey, Function[]> = new WeakMap;
     static registry: FinalizationRegistry<Function[]> = new FinalizationRegistry(
-        (cleanups) => cleanups.forEach((cleanup) => cleanup())
+        (cleanups: Function[]): void => {
+            for (const cleanup of cleanups) {
+                cleanup();
+            }
+        }
     );
 
     _val: T;
@@ -34,7 +35,7 @@ class State<T> {
 
     set value(value: T) {
         for (const handle of this._handles) {
-            handle.exec(value, this._val);
+            handle(value, this._val);
         }
         this._val = value;
     }
@@ -58,33 +59,30 @@ class State<T> {
             State.registry.register(capture, cleanups);
         }
 
-        const handle: ChangeHandle<T> = {
-            refs,
-            handler,
-            state: this,
-            context: [],
-            exec(next: T = handle.state.value, current: T = handle.state.value): void {
-                const captures = new Array<object>(handle.refs.length);
+        function handle(next: T = handle.state.value, current: T = handle.state.value): void {
+            const captures = new Array<object>(refs.length);
 
-                for (let i = 0; i < captures.length; i++) {
-                    const capture = handle.refs[i].deref();
+            for (let i = 0; i < captures.length; i++) {
+                const capture = refs[i].deref();
 
-                    if (capture === undefined) {
-                        handle.state._removeHandle(handle);
-                        return;
-                    }
-
-                    captures[i] = capture;
+                if (capture === undefined) {
+                    handle.state._removeHandle(handle);
+                    return;
                 }
 
-                try {
-                    State._clearChangeContext(handle.context);
-                    handle.handler(captures, handle.context, next, current);
-                } catch {
-                    //
-                }
-            },
-        };
+                captures[i] = capture;
+            }
+
+            try {
+                State._clearChangeContext(handle.context);
+                handler(captures as C, handle.context, next, current);
+            } catch {
+                //
+            }
+        }
+
+        handle.state = this;
+        handle.context = [] as ChangeContext;
 
         context.push(handle);
 
@@ -102,7 +100,7 @@ class State<T> {
 
         this.onChangeWeak(([state, ...captures], context, value) => {
             state.value = handler(captures, context, value);
-        }, [state, ...captures], context).exec();
+        }, [state, ...captures], context)();
 
         return state;
     }
@@ -154,7 +152,7 @@ function Example(context: ChangeContext) {
         div.style.color = value;
         Nested(context);
         AsyncNested(context);
-    }, [div], context).exec();
+    }, [div], context)();
 
     return (
         div
