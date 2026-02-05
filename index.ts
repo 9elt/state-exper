@@ -1,8 +1,12 @@
+type CaptureRef = WeakRef<object>;
+
 type ChangeHandler<T, C extends object[]> = (captures: C, context: ChangeContext, next: T, current: T) => void;
+
+type AsHandler<T, C extends object[]> = (captures: C, context: ChangeContext, value: T) => unknown;
 
 type Subscriber<T> = {
     handler: ChangeHandler<T, any>;
-    refs: WeakRef<object>[];
+    refs: CaptureRef[];
     state: State<T>;
     context: ChangeContext;
 };
@@ -14,16 +18,17 @@ class State<T> {
     static registry: FinalizationRegistry<Function[]> = new FinalizationRegistry(
         (cleanups) => cleanups.forEach((cleanup) => cleanup())
     );
-    _value: T;
+
+    _val: T;
     _subs: Subscriber<T>[];
 
     constructor(value: T) {
-        this._value = value;
+        this._val = value;
         this._subs = [];
     }
 
     get value(): T {
-        return this._value;
+        return this._val;
     }
 
     set value(value: T) {
@@ -49,17 +54,21 @@ class State<T> {
 
             try {
                 State.clearChangeContext(sub.context);
-                sub.handler(captures, sub.context, value, this._value);
+                sub.handler(captures, sub.context, value, this._val);
             } catch {
                 //
             }
         }
 
-        this._value = value;
+        this._val = value;
     }
 
-    onChangeWeak<const C extends object[]>(handler: ChangeHandler<T, C>, captures: C, context: ChangeContext): void {
-        const refs: WeakRef<object>[] = new Array(captures.length);
+    onChangeWeak<const C extends object[]>(
+        handler: ChangeHandler<T, C>,
+        captures: C,
+        context: ChangeContext
+    ): Subscriber<T> {
+        const refs = new Array<CaptureRef>(captures.length);
 
         for (let i = 0; i < captures.length; i++) {
             const capture = captures[i];
@@ -83,6 +92,24 @@ class State<T> {
         context.push(sub);
 
         this._subs.push(sub);
+
+        return sub;
+    }
+
+    asWeak<const C extends object[], H extends AsHandler<T, C>>(
+        handler: H,
+        captures: C,
+        context: ChangeContext
+    ): State<ReturnType<H>> {
+        const state: State<any> = new State(undefined);
+
+        const sub = this.onChangeWeak((captures, context, value) => {
+            state.value = handler(captures, context, value);
+        }, captures, context);
+
+        sub.handler(captures, sub.context, this._val, this._val);
+
+        return state;
     }
 
     unSubscribe(sub: Subscriber<T>): void {
@@ -148,9 +175,10 @@ function Example(context: ChangeContext) {
 
 function Nested(context: ChangeContext) {
     // how do we track this?
-    background.onChangeWeak(([], _context, next, prev) => {
-        next;
-        prev;
+    background.onChangeWeak(([], _context, _next, _prev) => { }, [], context);
+
+    const BACKGROUND = background.asWeak(([], _context, background) => {
+        return background.toUpperCase();
     }, [], context);
 
     return (
@@ -162,10 +190,7 @@ async function AsyncNested(context: ChangeContext) {
     await Promise.resolve();
 
     // how the hell do we track this?
-    background.onChangeWeak(([], _context, next, prev) => {
-        next;
-        prev;
-    }, [], context);
+    background.onChangeWeak(([], _context, _next, _prev) => { }, [], context);
 
     return (
         0
