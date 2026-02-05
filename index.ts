@@ -33,8 +33,8 @@ class State<T> {
     }
 
     set value(value: T) {
-        for (const sub of this._handles) {
-            sub.exec(value, this._val);
+        for (const handle of this._handles) {
+            handle.exec(value, this._val);
         }
         this._val = value;
     }
@@ -52,7 +52,7 @@ class State<T> {
             refs[i] = new WeakRef(capture);
 
             const cleanups = State.cleanups.get(capture) ?? [];
-            cleanups.push(() => this.unSubscribe(handle));
+            cleanups.push(() => this._removeHandle(handle));
 
             State.cleanups.set(capture, cleanups);
             State.registry.register(capture, cleanups);
@@ -70,7 +70,7 @@ class State<T> {
                     const capture = handle.refs[i].deref();
 
                     if (capture === undefined) {
-                        handle.state.unSubscribe(handle);
+                        handle.state._removeHandle(handle);
                         return;
                     }
 
@@ -78,7 +78,7 @@ class State<T> {
                 }
 
                 try {
-                    State.clearChangeContext(handle.context);
+                    State._clearChangeContext(handle.context);
                     handle.handler(captures, handle.context, next, current);
                 } catch {
                     //
@@ -107,32 +107,27 @@ class State<T> {
         return state;
     }
 
-    unSubscribe(sub: ChangeHandle<T>): void {
-        State.remove(this._handles, sub);
-        State.clearChangeContext(sub.context);
-    }
-
-    static clearChangeContext(context: ChangeContext): void {
-        for (const sub of context) {
-            sub.state.unSubscribe(sub);
-        }
-    }
-
-    static remove<T>(arr: T[], exclude: T): void {
+    _removeHandle(targetHandle: ChangeHandle<T>): void {
         let length = 0;
-        for (let i = 0; i < arr.length; i++) {
-            const sub = arr[i];
+        for (let i = 0; i < this._handles.length; i++) {
+            const handle = this._handles[i];
 
-            if (sub !== exclude) {
+            if (handle !== targetHandle) {
                 if (i > length) {
-                    arr[length] = sub;
+                    this._handles[length] = handle;
                 }
                 length++;
             }
         }
 
-        if (arr.length !== length) {
-            arr.length = length;
+        this._handles.length = length;
+
+        State._clearChangeContext(targetHandle.context);
+    }
+
+    static _clearChangeContext(context: ChangeContext): void {
+        for (const handle of context) {
+            handle.state._removeHandle(handle);
         }
     }
 }
