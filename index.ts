@@ -1,8 +1,17 @@
 type CaptureRef = WeakRef<object>;
 
-type ChangeHandler<T, C extends object[]> = (captures: C, context: ChangeContext, next: T, current: T) => void;
+type ChangeHandler<T, C extends object[]> = (
+    captures: C,
+    context: ChangeContext,
+    next: T,
+    current: T,
+) => void;
 
-type AsHandler<T, C extends object[]> = (captures: C, context: ChangeContext, value: T) => unknown;
+type AsHandler<T, C extends object[]> = (
+    captures: C,
+    context: ChangeContext,
+    value: T,
+) => unknown;
 
 type ChangeHandle<T> = ((next?: T, current?: T) => void) & {
     state: State<T>;
@@ -60,7 +69,10 @@ class State<T> {
             State.registry.register(capture, cleanups);
         }
 
-        function handle(next: T = handle.state.value, current: T = handle.state.value): void {
+        function handle(
+            next: T = handle.state.value,
+            current: T = handle.state.value,
+        ): void {
             if (handle.removed) {
                 console.error("Change handle already removed", handle);
                 return undefined;
@@ -73,7 +85,7 @@ class State<T> {
 
                 if (capture === undefined) {
                     handle.state._removeHandle(handle);
-                    return;
+                    return undefined;
                 }
 
                 captures[i] = capture;
@@ -167,7 +179,7 @@ function Example(context: ChangeContext) {
 
 function Nested(context: ChangeContext) {
     // how do we track this?
-    background.onChangeWeak(([], _context, _next, _current) => { }, [], context);
+    background.onChangeWeak(() => { }, [], context);
 
     const _BACKGROUND = background.asWeak(([], _context, value) => {
         return value.toUpperCase();
@@ -182,7 +194,7 @@ async function AsyncNested(context: ChangeContext) {
     await Promise.resolve();
 
     // how the hell do we track this?
-    background.onChangeWeak(([], _context, _next, _current) => { }, [], context);
+    background.onChangeWeak(() => { }, [], context);
 
     return (
         0
