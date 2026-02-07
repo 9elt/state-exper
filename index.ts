@@ -21,15 +21,11 @@ type ChangeHandle<T> = ((next?: T, current?: T) => void) & {
 
 type ChangeContext = ChangeHandle<any>[];
 
+type CleanupContext = ChangeContext;
+
 class State<T> {
-    static cleanups: WeakMap<WeakKey, Function[]> = new WeakMap;
-    static registry: FinalizationRegistry<Function[]> = new FinalizationRegistry(
-        (cleanups: Function[]): void => {
-            for (const cleanup of cleanups) {
-                cleanup();
-            }
-        }
-    );
+    static cleanups: WeakMap<WeakKey, CleanupContext> = new WeakMap;
+    static registry: FinalizationRegistry<CleanupContext> = new FinalizationRegistry(State._clearContext);
 
     _val: T;
     _handles: ChangeHandle<T>[];
@@ -62,11 +58,10 @@ class State<T> {
 
             refs[i] = new WeakRef(capture);
 
-            const cleanups = State.cleanups.get(capture) ?? [];
-            cleanups.push(() => this._removeHandle(handle));
-
-            State.cleanups.set(capture, cleanups);
-            State.registry.register(capture, cleanups);
+            const cleanupContext = State.cleanups.get(capture) ?? [];
+            cleanupContext.push(handle);
+            State.cleanups.set(capture, cleanupContext);
+            State.registry.register(capture, cleanupContext);
         }
 
         function handle(
@@ -92,7 +87,7 @@ class State<T> {
             }
 
             try {
-                State._clearChangeContext(handle.context);
+                State._clearContext(handle.context);
                 handler(captures as C, handle.context, next, current);
             } catch (error) {
                 console.error("Error in change handle", handle, error);
@@ -138,10 +133,10 @@ class State<T> {
             }
         }
 
-        State._clearChangeContext(handle.context);
+        State._clearContext(handle.context);
     }
 
-    static _clearChangeContext(context: ChangeContext): void {
+    static _clearContext(context: ChangeContext | CleanupContext): void {
         for (const handle of context) {
             handle.state._removeHandle(handle);
         }
