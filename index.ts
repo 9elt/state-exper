@@ -1,13 +1,13 @@
-type CaptureRef = WeakRef<object>;
+type Capture = object;
 
-type ChangeHandler<T, C extends object[]> = (
+type ChangeHandler<T, C extends Capture[]> = (
     captures: C,
     context: ChangeContext,
     next: T,
     current: T,
 ) => void;
 
-type AsHandler<T, C extends object[]> = (
+type AsHandler<T, C extends Capture[]> = (
     captures: C,
     context: ChangeContext,
     value: T,
@@ -21,37 +21,37 @@ type ChangeHandle<T> = ((next?: T, current?: T) => void) & {
 
 type ChangeContext = ChangeHandle<any>[];
 
-type CleanupContext = ChangeContext;
+type CleanupContext = ChangeHandle<any>[];
 
 class State<T> {
-    static cleanups: WeakMap<WeakKey, CleanupContext> = new WeakMap;
-    static registry: FinalizationRegistry<CleanupContext> = new FinalizationRegistry(State._clearContext);
+    static cleanups = new WeakMap<Capture, CleanupContext>;
+    static registry = new FinalizationRegistry<CleanupContext>(State._clearContext);
 
-    _val: T;
+    _value: T;
     _handles: ChangeHandle<T>[];
 
     constructor(value: T) {
-        this._val = value;
+        this._value = value;
         this._handles = [];
     }
 
     get value(): T {
-        return this._val;
+        return this._value;
     }
 
     set value(value: T) {
         for (const handle of this._handles) {
-            handle(value, this._val);
+            handle(value, this._value);
         }
-        this._val = value;
+        this._value = value;
     }
 
-    onChangeWeak<const C extends object[]>(
+    onChangeWeak<const C extends Capture[]>(
         handler: ChangeHandler<T, C>,
         captures: C,
-        context: ChangeContext
+        context: ChangeContext,
     ): ChangeHandle<T> {
-        const refs = new Array<CaptureRef>(captures.length);
+        const refs = new Array<WeakRef<Capture>>(captures.length);
 
         for (let i = 0; i < captures.length; i++) {
             const capture = captures[i];
@@ -73,9 +73,9 @@ class State<T> {
                 return undefined;
             }
 
-            const captures = new Array<object>(refs.length);
+            const captures = new Array<Capture>(refs.length);
 
-            for (let i = 0; i < captures.length; i++) {
+            for (let i = 0; i < refs.length; i++) {
                 const capture = refs[i].deref();
 
                 if (capture === undefined) {
@@ -105,10 +105,10 @@ class State<T> {
         return handle;
     }
 
-    asWeak<const C extends object[], H extends AsHandler<T, C>>(
+    asWeak<const C extends Capture[], H extends AsHandler<T, C>>(
         handler: H,
         captures: C,
-        context: ChangeContext
+        context: ChangeContext,
     ): State<ReturnType<H>> {
         const state: State<any> = new State(undefined);
 
