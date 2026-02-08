@@ -1,13 +1,13 @@
 type Capture = object;
 
-type ChangeHandler<T, C extends Capture[]> = (
+type ChangeHandler<C extends Capture[], T> = (
     captures: C,
     context: ChangeContext,
     next: T,
     current: T,
 ) => void;
 
-type AsHandler<T, C extends Capture[]> = (
+type DeriveHandler<C extends Capture[], T> = (
     captures: C,
     context: ChangeContext,
     value: T,
@@ -46,8 +46,8 @@ class State<T> {
         this._value = value;
     }
 
-    onChangeWeak<const C extends Capture[]>(
-        handler: ChangeHandler<T, C>,
+    onChange<const C extends Capture[]>(
+        handler: ChangeHandler<C, T>,
         captures: C,
         context: ChangeContext,
     ): ChangeHandle<T> {
@@ -69,7 +69,6 @@ class State<T> {
             current: T = handle.state.value,
         ): void {
             if (handle.removed) {
-                console.error("Change handle already removed", handle);
                 return undefined;
             }
 
@@ -86,12 +85,9 @@ class State<T> {
                 captures[i] = capture;
             }
 
-            try {
-                State._clearContext(handle.context);
-                handler(captures as C, handle.context, next, current);
-            } catch (error) {
-                console.error("Error in change handle", handle, error);
-            }
+            State._clearContext(handle.context);
+
+            handler(captures as C, handle.context, next, current);
         }
 
         handle.state = this;
@@ -99,20 +95,19 @@ class State<T> {
         handle.removed = false;
 
         context.push(handle);
-
         this._handles.push(handle);
 
         return handle;
     }
 
-    asWeak<const C extends Capture[], H extends AsHandler<T, C>>(
+    derive<const C extends Capture[], H extends DeriveHandler<C, T>>(
         handler: H,
         captures: C,
         context: ChangeContext,
     ): State<ReturnType<H>> {
         const state: State<any> = new State(undefined);
 
-        this.onChangeWeak(([state, ...captures], context, value) => {
+        this.onChange(([state, ...captures], context, value) => {
             state.value = handler(captures, context, value);
         }, [state, ...captures], context)();
 
@@ -161,7 +156,7 @@ const background = new State("blue");
 function Example(context: ChangeContext) {
     const div = document.createElement("div");
 
-    color.onChangeWeak(([div], context, value) => {
+    color.onChange(([div], context, value) => {
         div.style.color = value;
         Nested(context);
         AsyncNested(context);
@@ -174,9 +169,9 @@ function Example(context: ChangeContext) {
 
 function Nested(context: ChangeContext) {
     // how do we track this?
-    background.onChangeWeak(() => { }, [], context);
+    background.onChange(() => { }, [], context);
 
-    const _BACKGROUND = background.asWeak(([], _context, value) => {
+    const _BACKGROUND = background.derive(([], _context, value) => {
         return value.toUpperCase();
     }, [], context);
 
@@ -189,7 +184,7 @@ async function AsyncNested(context: ChangeContext) {
     await Promise.resolve();
 
     // how the hell do we track this?
-    background.onChangeWeak(() => { }, [], context);
+    background.onChange(() => { }, [], context);
 
     return (
         0
